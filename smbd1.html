@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SN扫描比对工具</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- 引入优化版的html5-qrcode库 -->
-    <script src="https://unpkg.com/html5-qrcode/minified/html5-qrcode.min.js"></script>
+    <!-- 修复：使用正确的html5-qrcode库版本 -->
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
         :root {
             --primary-color: #1890ff;
@@ -1005,6 +1005,28 @@
             to { opacity: 0; }
         }
         
+        /* 摄像头错误提示 */
+        .camera-error {
+            background-color: rgba(255, 77, 79, 0.1);
+            border: 1px solid var(--error-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .camera-error i {
+            color: var(--error-color);
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        
+        .camera-error p {
+            color: var(--error-color);
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+        
         /* 移动端响应式设计 */
         @media (max-width: 1024px) {
             .data-panel {
@@ -1147,20 +1169,6 @@
                 padding: 12px 16px;
             }
         }
-        
-        /* 性能优化类 */
-        .performance-optimized {
-            transform: translateZ(0);
-            backface-visibility: hidden;
-            perspective: 1000px;
-            will-change: transform;
-        }
-        
-        /* 扫描性能优化 */
-        .high-performance-scan {
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-        }
     </style>
 </head>
 <body>
@@ -1261,7 +1269,7 @@
                     
                     <!-- 摄像头扫描区域 -->
                     <div class="camera-container" id="cameraContainer">
-                        <div id="camera-preview" class="high-performance-scan">
+                        <div id="camera-preview">
                             <div class="camera-overlay">
                                 <div class="scan-frame">
                                     <div class="scan-line"></div>
@@ -1426,7 +1434,8 @@
                 "scanSuccess": "扫描成功: {sn}",
                 "scanPlaceholder": "请使用扫码枪扫描SN或手动输入",
                 "cameraAccessError": "无法访问摄像头，请检查权限",
-                "cameraActive": "扫描中..."
+                "cameraActive": "扫描中...",
+                "cameraNotSupported": "您的设备不支持摄像头或摄像头访问被拒绝"
             },
             vi: {
                 "dataSource": "Quản lý nguồn dữ liệu",
@@ -1479,7 +1488,8 @@
                 "scanSuccess": "Quét thành công: {sn}",
                 "scanPlaceholder": "Quét SN hoặc nhập thủ công",
                 "cameraAccessError": "Lỗi truy cập camera",
-                "cameraActive": "Đang quét..."
+                "cameraActive": "Đang quét...",
+                "cameraNotSupported": "Thiết bị không hỗ trợ camera hoặc quyền bị từ chối"
             }
         };
         
@@ -1491,7 +1501,7 @@
         let scannedSNs = new Set();
         let preventDuplicate = true;
         let enableSound = true;
-        let highSpeedScan = true; // 新增：高速扫描模式
+        let highSpeedScan = true;
         let currentLanguage = 'zh';
         let html5QrCode = null;
         let isCameraActive = false;
@@ -1529,11 +1539,7 @@
         const cameraContainer = document.getElementById('cameraContainer');
         const stopCameraBtn = document.getElementById('stopCameraBtn');
         const cameraStatus = document.getElementById('camera-status');
-        
-        // 性能优化变量
-        let lastCameraScanTime = 0;
-        let cameraScanInterval = 100; // 默认扫描间隔100ms
-        let isProcessingScan = false;
+        const cameraPreview = document.getElementById('camera-preview');
         
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
@@ -1547,7 +1553,6 @@
             preventDuplicate = preventDuplicateSwitch.checked;
             enableSound = soundSwitch.checked;
             highSpeedScan = highSpeedSwitch.checked;
-            updateScanInterval();
             
             // 更新扫描输入框占位符
             updateScanPlaceholder();
@@ -1555,37 +1560,9 @@
             // 初始化语言
             initLanguage();
             
-            // 检查摄像头支持
-            checkCameraSupport();
-            
-            // 初始化二维码扫描器（延迟加载以提升性能）
-            setTimeout(initQrCodeScanner, 500);
-            
             // 自动聚焦到扫描输入框
             scanInput.focus();
         });
-        
-        // 检查摄像头支持
-        function checkCameraSupport() {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                console.warn("设备不支持摄像头访问");
-                cameraModeBtn.disabled = true;
-                cameraModeBtn.title = translate('cameraAccessError');
-            }
-        }
-        
-        // 初始化二维码扫描器（优化性能）
-        function initQrCodeScanner() {
-            try {
-                html5QrCode = new Html5Qrcode("camera-preview");
-                console.log("二维码扫描器初始化成功");
-            } catch (error) {
-                console.error("初始化二维码扫描器失败:", error);
-                cameraModeBtn.disabled = true;
-                cameraModeBtn.innerHTML = '<i class="fas fa-camera-slash"></i> <span data-i18n="cameraScan">摄像头扫描</span>';
-                updateLanguageElements();
-            }
-        }
         
         // 初始化语言
         function initLanguage() {
@@ -1683,11 +1660,6 @@
             scanInput.placeholder = translate('scanPlaceholder');
         }
         
-        // 更新扫描间隔（根据高速模式调整）
-        function updateScanInterval() {
-            cameraScanInterval = highSpeedScan ? 50 : 100; // 高速模式50ms，普通模式100ms
-        }
-        
         // 绑定事件
         function bindEvents() {
             // 文件上传相关事件
@@ -1728,7 +1700,6 @@
             
             highSpeedSwitch.addEventListener('change', function() {
                 highSpeedScan = this.checked;
-                updateScanInterval();
                 showToast(
                     this.checked ? translate('enableHighSpeed') : translate('disableHighSpeed'), 
                     "info"
@@ -1760,13 +1731,6 @@
                     } catch (e) {
                         // 忽略错误
                     }
-                }
-            });
-            
-            // 移动端优化：点击空白处隐藏语言选项
-            document.addEventListener('touchstart', function(e) {
-                if (!currentLangBtn.contains(e.target) && !langOptions.contains(e.target)) {
-                    langOptions.classList.remove('show');
                 }
             });
         }
@@ -1801,9 +1765,12 @@
             currentScanMode = mode;
         }
         
-        // 启动摄像头（优化性能）
+        // 启动摄像头（修复版）
         async function startCamera() {
-            if (!html5QrCode || isCameraActive) return;
+            // 如果已经激活，先停止
+            if (isCameraActive && html5QrCode) {
+                await stopCamera();
+            }
             
             try {
                 // 更新摄像头状态显示
@@ -1813,28 +1780,42 @@
                 `;
                 cameraStatus.style.display = 'flex';
                 
-                // 优化摄像头配置以提高扫描速度
+                // 检查浏览器是否支持摄像头
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error(translate('cameraNotSupported'));
+                }
+                
+                // 初始化html5QrCode扫描器
+                if (!html5QrCode) {
+                    html5QrCode = new Html5Qrcode("camera-preview");
+                }
+                
+                // 配置摄像头
                 const cameraConfig = {
-                    fps: highSpeedScan ? 30 : 15, // 高速模式30fps，普通模式15fps
+                    fps: highSpeedScan ? 30 : 15,
                     qrbox: { width: 220, height: 120 },
                     aspectRatio: 1.0,
-                    disableFlip: false,
-                    // 优化性能的配置
-                    videoConstraints: {
-                        facingMode: "environment",
-                        width: { min: 640, ideal: 1280, max: 1920 },
-                        height: { min: 480, ideal: 720, max: 1080 }
-                    }
+                    disableFlip: false
                 };
                 
-                // 启动摄像头
-                await html5QrCode.start(
-                    { facingMode: "environment" },
-                    cameraConfig,
-                    // 使用节流函数处理扫描结果
-                    throttle(onCameraScanSuccess, cameraScanInterval),
-                    () => {} // 简化错误处理
-                );
+                // 尝试启动后置摄像头
+                try {
+                    await html5QrCode.start(
+                        { facingMode: "environment" },
+                        cameraConfig,
+                        onCameraScanSuccess,
+                        onCameraScanFailure
+                    );
+                } catch (rearCameraError) {
+                    console.log("后置摄像头启动失败，尝试前置摄像头:", rearCameraError);
+                    // 如果后置摄像头失败，尝试前置摄像头
+                    await html5QrCode.start(
+                        { facingMode: "user" },
+                        cameraConfig,
+                        onCameraScanSuccess,
+                        onCameraScanFailure
+                    );
+                }
                 
                 // 更新状态
                 isCameraActive = true;
@@ -1845,24 +1826,37 @@
                 
             } catch (error) {
                 console.error("启动摄像头失败:", error);
+                
+                // 显示错误信息
                 cameraStatus.innerHTML = `
-                    <i class="fas fa-exclamation-triangle" style="font-size: 36px; margin-bottom: 12px; color: var(--error-color);"></i>
-                    <p>${translate('cameraAccessError')}</p>
+                    <div class="camera-error">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>${translate('cameraAccessError')}</p>
+                        <p style="font-size: 11px; margin-top: 5px;">${error.message || ''}</p>
+                        <button class="btn btn-primary btn-sm" id="retryCameraBtn" style="margin-top: 10px;">
+                            <i class="fas fa-redo"></i> 重试
+                        </button>
+                    </div>
                 `;
+                
+                // 添加重试按钮事件
+                document.getElementById('retryCameraBtn')?.addEventListener('click', startCamera);
+                
                 showToast(translate('cameraAccessError'), "error");
                 
                 // 切换回手动模式
                 setTimeout(() => {
                     switchScanMode('manual');
-                }, 2000);
+                }, 3000);
             }
         }
         
         // 停止摄像头
-        function stopCamera() {
+        async function stopCamera() {
             if (!html5QrCode || !isCameraActive) return;
             
-            html5QrCode.stop().then(() => {
+            try {
+                await html5QrCode.stop();
                 isCameraActive = false;
                 cameraStatus.style.display = 'flex';
                 cameraStatus.innerHTML = `
@@ -1872,39 +1866,29 @@
                 statusText.textContent = translate('readyStatus');
                 statusText.style.color = "";
                 showToast(translate('cameraStopped'), "info");
-            }).catch(error => {
+            } catch (error) {
                 console.error("停止摄像头失败:", error);
-            });
+                // 即使停止失败，也更新状态
+                isCameraActive = false;
+                cameraStatus.style.display = 'flex';
+                cameraStatus.innerHTML = `
+                    <i class="fas fa-camera" style="font-size: 36px; margin-bottom: 12px;"></i>
+                    <p>${translate('cameraLoading')}</p>
+                `;
+                statusText.textContent = translate('readyStatus');
+                statusText.style.color = "";
+            }
         }
         
-        // 节流函数，用于优化摄像头扫描频率
-        function throttle(func, limit) {
-            let inThrottle;
-            return function(...args) {
-                if (!inThrottle) {
-                    func.apply(this, args);
-                    inThrottle = true;
-                    setTimeout(() => inThrottle = false, limit);
-                }
-            };
-        }
-        
-        // 摄像头扫描成功回调（优化性能）
+        // 摄像头扫描成功回调
         function onCameraScanSuccess(decodedText, decodedResult) {
             // 防止频繁触发
             const now = Date.now();
-            if (now - lastCameraScanTime < cameraScanInterval) return;
-            lastCameraScanTime = now;
-            
-            // 防止重复处理
-            if (isProcessingScan) return;
-            isProcessingScan = true;
+            if (now - lastScanTime < 300) return;
+            lastScanTime = now;
             
             const sn = decodedText.trim();
-            if (!sn) {
-                isProcessingScan = false;
-                return;
-            }
+            if (!sn) return;
             
             // 显示扫描成功提示
             showToast(translate('scanSuccess', {sn: sn}), "success");
@@ -1913,7 +1897,6 @@
             if (preventDuplicate && scannedSNs.has(sn)) {
                 showDuplicateAlert(sn);
                 playSound("duplicate");
-                isProcessingScan = false;
                 return;
             }
             
@@ -1930,11 +1913,12 @@
             if (enableSound) {
                 playSound(isPass ? "pass" : "fail");
             }
-            
-            // 处理完成后释放锁
-            setTimeout(() => {
-                isProcessingScan = false;
-            }, 50);
+        }
+        
+        // 摄像头扫描失败回调
+        function onCameraScanFailure(error) {
+            // 这里可以处理扫描失败的情况，但通常不需要特别处理
+            // console.log("扫描失败:", error);
         }
         
         // 处理拖拽文件
@@ -2247,7 +2231,7 @@
             }, 2000);
         }
         
-        // 播放提示音（优化性能）
+        // 播放提示音
         function playSound(type) {
             try {
                 // 使用Web Audio API创建音效
